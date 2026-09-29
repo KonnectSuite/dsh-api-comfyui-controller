@@ -4,23 +4,20 @@ kind: "package-reference"
 ---
 <!-- MIRROR NOTICE - added by the mirror, not part of the package. -->
 
-> ### This repository is a mirror, not a standalone build
+> ### Mirror of an AryaAI plugin package
 >
-> `@deepseek-ai/dsh-api-comfyui-controller` is a plugin for **AryaAI**, a DeepSeek Harness fork. Its source
-> depends on `@deepseek-ai/dsh-*` core packages at workspace version `0.1.7-rc.2`
-> through `workspace:*`, and those versions are not published. The releases on npm
-> are older (`0.0.1-rc.1`), so `pnpm install` and a build **will not work** in a
-> fresh clone of this repository.
+> `@deepseek-ai/dsh-api-comfyui-controller` is a plugin for **AryaAI**, a DeepSeek Harness fork. This repository holds
+> the package's source and its built output as they stand in the AryaAI workspace at
+> `0.1.7-rc.2`.
 >
-> To work on it, place this package into an AryaAI checkout at `packages/api/comfyui-controller`.
-> This mirror exists so the source and its built output are versioned and reviewable
-> in one place.
+> Its dependencies are published. `@deepseek-ai/dsh-*` at `0.1.7-rc.2` is on npm,
+> so a standalone build is possible once the manifest declares them. **Pin the
+> version**: the `latest` dist-tag points at an older release (`0.0.1-rc.1`), so
+> an unpinned `npm install @deepseek-ai/dsh-tools` resolves to a much older API.
 >
-> The built output under `lib/` is committed for reference. It was produced inside
-> the AryaAI workspace at `0.1.7-rc.2`.
+> In the monorepo this package lives at `packages/api/comfyui-controller`.
 
 ---
-
 # @deepseek-ai/dsh-api-comfyui-controller
 
 English | [中文](README.zh.md)
