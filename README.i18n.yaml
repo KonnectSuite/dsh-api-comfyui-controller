@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/api/comfyui-controller/README.md
+/:
+  en: 782ccc5e88e38784
+  zh: 1f52d61370299318
+/deepseek-ai-dsh-api-comfyui-controller:
+  en: d6697470112c0cb7
+  zh: 126c1299077e1559
+/deepseek-ai-dsh-api-comfyui-controller/summary:
+  en: 40e7ba76d1e1966e
+  zh: 1d6fa4c49c501e33
+/deepseek-ai-dsh-api-comfyui-controller/model-experience:
+  en: cafef874098c2618
+  zh: 5c90c287d5c7fae6
+/deepseek-ai-dsh-api-comfyui-controller/model-experience/kv-cache-effect:
+  en: c3537ce2e5145994
+  zh: 4eb0c079fd9389ee
+/deepseek-ai-dsh-api-comfyui-controller/known-limitations-and-deferred-work:
+  en: c615131d58d0e165
+  zh: e84cd35bd4463a8d

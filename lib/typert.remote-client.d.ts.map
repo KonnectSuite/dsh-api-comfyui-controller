@@ -1,0 +1,1 @@
+{"version":3,"file":"typert.remote-client.d.ts","names":["cancel","deleteGeneration","generate","history","image","status"],"sources":["../src/index.ts"],"sourcesContent":[null],"mappings":";;;;;;;;;IAkqBQA,M;IAXAC,gB;IAxEAC,Q;IAgDAC,O;IAYAC,K;IA/EAC,M;;;IAsGAL,oB;IAXAC,8B;IAxEAC,sB;IAgDAC,qB;IAYAC,mB;IA/EAC,oB","ignoreList":[]}

@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Build state and residue
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
