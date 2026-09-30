@@ -4,6 +4,8 @@ export interface ComfyImagesStatus {
     readonly baseUrl: string;
     readonly models: ComfyImageModel[];
     readonly workflows: ComfyImageWorkflow[];
+    /** Whether the Host can browse ComfyUI's configured output directory. */
+    readonly libraryAvailable: boolean;
     readonly error: string | null;
 }
 /** One built-in or saved ComfyUI workflow exposed in the Images composer. */
@@ -16,6 +18,13 @@ export interface ComfyImageWorkflow {
     readonly recommendedSteps: number;
     readonly recommendedCfg: number;
     readonly supportsNegativePrompt: boolean;
+    /** Installed model wired into this saved graph; null when unavailable. */
+    readonly modelId: string | null;
+    /** Editable starting values taken from the saved graph. */
+    readonly starterPrompt: string;
+    readonly width: number;
+    readonly height: number;
+    readonly batchSize: number;
 }
 /** One locally installed model configuration Arya can run through ComfyUI. */
 export interface ComfyImageModel {
@@ -37,6 +46,10 @@ export interface ComfyGenerateRequest {
     readonly cfg: number;
     readonly seed: number | null;
     readonly batchSize: number;
+    /** Existing ComfyUI image used as the initial latent, or null for text-to-image. */
+    readonly sourceImage: ComfyImageReference | null;
+    /** Amount of change when sourceImage is set, from 0.05 to 1. */
+    readonly denoise: number;
 }
 /** The queued ComfyUI prompt. */
 export interface ComfyGenerateReceipt {
@@ -85,5 +98,21 @@ export interface ComfyCancelRequest {
 /** Identifies one completed generation to remove from ComfyUI history. */
 export interface ComfyDeleteRequest {
     readonly promptId: string;
+}
+/** A page of images retained in ComfyUI's output directory, including old runs absent from history. */
+export interface ComfyLibraryPage {
+    readonly images: readonly ComfyStoredImage[];
+    readonly total: number;
+}
+/** One image on disk under the configured ComfyUI output directory. */
+export interface ComfyStoredImage {
+    readonly image: ComfyImageReference;
+    readonly modifiedAt: number;
+    readonly bytes: number;
+}
+/** Offset pagination keeps large local libraries cheap to browse. */
+export interface ComfyLibraryRequest {
+    readonly offset: number;
+    readonly limit: number;
 }
 //# sourceMappingURL=types.d.ts.map

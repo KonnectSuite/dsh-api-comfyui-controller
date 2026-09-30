@@ -3,7 +3,7 @@
   "description": "Remote owner for local ComfyUI image generation, history, outputs, and cancellation",
   "version": "0.1.7-rc.2",
   "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/KonnectSuite/AryaAI.git", "directory": "packages/api/comfyui-controller" },
+  "repository": { "type": "git", "url": "git+https://github.com/KonnectSuite/dsh-api-comfyui-controller.git" },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

@@ -3,23 +3,27 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus } from '@deepseek-ai/dsh-api-comfyui-controller/types'
+import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from '@deepseek-ai/dsh-api-comfyui-controller/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$636f6d6679496d61676573 {
     cancel: (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     deleteGeneration: (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
+    deleteImage: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     generate: (request: ComfyGenerateRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyGenerateReceipt>>
     history: (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     image: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>
+    library: (request: ComfyLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyLibraryPage>>
     status: (signal?: AbortSignal) => Promise<RemoteResult<ComfyImagesStatus>>
   }
   interface TypertRemoteMap {
     'comfyImages/cancel': (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/deleteGeneration': (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
+    'comfyImages/deleteImage': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/generate': (request: ComfyGenerateRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyGenerateReceipt>>
     'comfyImages/history': (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     'comfyImages/image': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>
+    'comfyImages/library': (request: ComfyLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyLibraryPage>>
     'comfyImages/status': (signal?: AbortSignal) => Promise<RemoteResult<ComfyImagesStatus>>
   }
   interface TypertRemoteNamespaceMap {

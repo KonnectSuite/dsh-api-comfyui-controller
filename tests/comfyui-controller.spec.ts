@@ -1,9 +1,13 @@
 import { Context } from '@deepseek-ai/cordis'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   basicTextToImageWorkflow,
   ComfyImagesController,
   generationsOf,
+  imageToImageWorkflow,
   savedTextToImageWorkflow,
   zImageTurboWorkflow,
 } from '../src/index.ts'
@@ -22,6 +26,8 @@ const request: ComfyGenerateRequest = {
   cfg: 7,
   seed: 42,
   batchSize: 2,
+  sourceImage: null,
+  denoise: 1,
 }
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -52,6 +58,37 @@ describe('ComfyImagesController', () => {
       inputs: { seed: 42, model: ['1', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], scheduler: 'simple' },
     })
     expect(graph['9']).toEqual({ class_type: 'SaveImage', inputs: { filename_prefix: 'AryaAI', images: ['8', 0] } })
+  })
+
+  it('uses an uploaded image as the sampler latent while retaining the chosen sampler', () => {
+    const graph = zImageTurboWorkflow(request, {
+      diffusionModel: 'z_image_turbo_bf16.safetensors', textEncoder: 'qwen_3_4b.safetensors', vae: 'ae.safetensors',
+    }, 42, 'AryaAI')
+    imageToImageWorkflow(graph, 'source.png', 0.55)
+    expect(graph['6']).toBeUndefined()
+    expect(graph['10']).toEqual({ class_type: 'LoadImage', inputs: { image: 'source.png' } })
+    expect(graph['11']).toEqual({ class_type: 'VAEEncode', inputs: { pixels: ['10', 0], vae: ['3', 0] } })
+    expect(graph['7']?.inputs).toMatchObject({ sampler_name: 'euler', latent_image: ['11', 0], denoise: 0.55 })
+  })
+
+  it('lists retained output files independently of history and removes only the selected file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'arya-comfy-library-'))
+    try {
+      await mkdir(join(root, 'archive'))
+      await writeFile(join(root, 'older.png'), 'older')
+      await writeFile(join(root, 'archive', 'chosen.webp'), 'chosen')
+      const controller = new ComfyImagesController(new Context(), { outputDirectory: root })
+      const first = await controller.library({ offset: 0, limit: 1 }, signal())
+      const second = await controller.library({ offset: 1, limit: 1 }, signal())
+      expect(first.total).toBe(2)
+      expect([...first.images, ...second.images].map(item => item.image.filename).sort()).toEqual(['chosen.webp', 'older.png'])
+      await expect(controller.deleteImage({ filename: 'older.png', subfolder: '..', type: 'output' }, signal())).rejects.toThrow()
+      await controller.deleteImage({ filename: 'chosen.webp', subfolder: 'archive', type: 'output' }, signal())
+      await expect(readFile(join(root, 'archive', 'chosen.webp'))).rejects.toThrow()
+      expect((await controller.library({ offset: 0, limit: 10 }, signal())).total).toBe(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('restores saved workflow names for old history and explicit metadata for new history', () => {
@@ -142,7 +179,10 @@ describe('ComfyImagesController', () => {
       workflows: [{
         id: 'built-in:standard', label: 'Z-Image Turbo · AryaAI standard', source: 'built-in', available: true,
         unavailableReason: null, recommendedSteps: 9, recommendedCfg: 1, supportsNegativePrompt: false,
+        modelId: 'z-image-turbo:z_image_turbo_bf16.safetensors',
+        starterPrompt: '', width: 1024, height: 1024, batchSize: 1,
       }],
+      libraryAvailable: false,
       error: null,
     })
   })

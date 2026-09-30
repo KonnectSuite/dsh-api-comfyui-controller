@@ -1,5 +1,7 @@
 /** The `comfyImages` Remote namespace over one configured local ComfyUI host. */
 import { randomInt, randomUUID } from 'node:crypto'
+import { lstat, readdir, realpath, stat, unlink } from 'node:fs/promises'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -16,6 +18,9 @@ import type {
   ComfyImageReference,
   ComfyImageRequest,
   ComfyImagesStatus,
+  ComfyLibraryPage,
+  ComfyLibraryRequest,
+  ComfyStoredImage,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -24,12 +29,14 @@ interface Config {
   readonly baseUrl?: string
   readonly outputPrefix?: string
   readonly requestTimeoutMs?: number
+  readonly outputDirectory?: string
 }
 
 interface ResolvedConfig {
   readonly baseUrl: string
   readonly outputPrefix: string
   readonly requestTimeoutMs: number
+  readonly outputDirectory: string | null
 }
 
 interface WorkflowNode {
@@ -62,6 +69,7 @@ interface SavedCatalogEntry {
   readonly error?: string
 }
 
+/** Saved workflow identity used when reconstructing ComfyUI history. */
 export interface HistoryWorkflowIdentity {
   readonly id: string
   readonly label: string
@@ -100,7 +108,13 @@ function integer(name: string, value: number, min: number, max: number): number 
   return value
 }
 
-/** Build the standard-node text-to-image graph shared by the controller and its tests. */
+/** Build the standard-node text-to-image graph shared by the controller and its tests.
+ * @param request - Validated generation settings.
+ * @param checkpoint - Installed checkpoint filename.
+ * @param seed - Resolved sampler seed.
+ * @param prefix - Output image filename prefix.
+ * @returns ComfyUI prompt graph.
+ */
 export function basicTextToImageWorkflow(request: ComfyGenerateRequest, checkpoint: string, seed: number, prefix: string): Workflow {
   return {
     '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: checkpoint } },
@@ -119,7 +133,13 @@ export function basicTextToImageWorkflow(request: ComfyGenerateRequest, checkpoi
   }
 }
 
-/** Build the official standard-node Z-Image Turbo text-to-image graph. */
+/** Build the official standard-node Z-Image Turbo text-to-image graph.
+ * @param request - Validated generation settings.
+ * @param files - Installed model, encoder, and VAE filenames.
+ * @param seed - Resolved sampler seed.
+ * @param prefix - Output image filename prefix.
+ * @returns ComfyUI prompt graph.
+ */
 export function zImageTurboWorkflow(
   request: ComfyGenerateRequest,
   files: { readonly diffusionModel: string; readonly textEncoder: string; readonly vae: string },
@@ -199,7 +219,13 @@ function savedWidgetInputs(node: SavedWorkflowNode): Record<string, unknown> {
   )))
 }
 
-/** Convert one supported ComfyUI saved workflow into an API prompt graph. */
+/** Convert one supported ComfyUI saved workflow into an API prompt graph.
+ * @param saved - Saved workflow graph.
+ * @param request - Validated generation settings.
+ * @param seed - Resolved sampler seed.
+ * @param prefix - Output image filename prefix.
+ * @returns ComfyUI prompt graph.
+ */
 export function savedTextToImageWorkflow(
   saved: SavedWorkflow,
   request: ComfyGenerateRequest,
@@ -236,6 +262,32 @@ export function savedTextToImageWorkflow(
   if (!promptAssigned || nodeOf(graph, 'KSampler') === undefined || nodeOf(graph, 'SaveImage') === undefined) {
     throw new Error('Workflow is not a supported text-to-image graph')
   }
+  return graph
+}
+
+/** Replace an empty latent in-place with an image encoded through the graph's VAE.
+ * @param graph - Saved or built-in text-to-image graph to modify.
+ * @param filename - ComfyUI annotated image path, including its directory type.
+ * @param denoise - Sampler change strength from 0.05 to 1.
+ * @returns The same graph with its sampler connected to the encoded image.
+ */
+export function imageToImageWorkflow(graph: Workflow, filename: string, denoise: number): Workflow {
+  const sampler = nodeOf(graph, 'KSampler')
+  const vae = nodeOf(graph, 'VAELoader') ?? nodeOf(graph, 'CheckpointLoaderSimple')
+  if (sampler === undefined || vae === undefined) throw new Error('Workflow cannot use an input image')
+  const vaeOutput = vae[1].class_type === 'CheckpointLoaderSimple' ? 2 : 0
+  const nextId = Math.max(0, ...Object.keys(graph).map(Number).filter(Number.isFinite)) + 1
+  const loadId = String(nextId)
+  const encodeId = String(nextId + 1)
+  const priorLatent = sampler[1].inputs.latent_image
+  if (Array.isArray(priorLatent) && typeof priorLatent[0] === 'string') {
+    const node = graph[priorLatent[0]]
+    if (node?.class_type === 'EmptyLatentImage' || node?.class_type === 'EmptySD3LatentImage') delete graph[priorLatent[0]]
+  }
+  graph[loadId] = { class_type: 'LoadImage', inputs: { image: filename } }
+  graph[encodeId] = { class_type: 'VAEEncode', inputs: { pixels: [loadId, 0], vae: [vae[0], vaeOutput] } }
+  sampler[1].inputs.latent_image = [encodeId, 0]
+  sampler[1].inputs.denoise = denoise
   return graph
 }
 
@@ -330,6 +382,11 @@ function inferredWorkflow(
     : { id: null, label: 'Custom Z-Image workflow' }
 }
 
+/** Reconstruct generations from ComfyUI history entries.
+ * @param value - Untrusted ComfyUI history JSON.
+ * @param identities - Saved workflow identities available at read time.
+ * @returns Generations with image references and resolved workflow labels.
+ */
 export function generationsOf(
   value: unknown,
   identities: readonly HistoryWorkflowIdentity[] = [],
@@ -383,6 +440,7 @@ export class ComfyImagesController extends TypertRemoteService {
     baseUrl: z.string().min(1).default('http://127.0.0.1:8188'),
     outputPrefix: z.string().min(1).default('AryaAI'),
     requestTimeoutMs: z.number().step(1).min(1_000).max(300_000).default(30_000),
+    outputDirectory: z.string().default(''),
   })
 
   private readonly config: ResolvedConfig
@@ -394,6 +452,7 @@ export class ComfyImagesController extends TypertRemoteService {
       baseUrl: normalizedBaseUrl(config.baseUrl ?? 'http://127.0.0.1:8188'),
       outputPrefix: config.outputPrefix ?? 'AryaAI',
       requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
+      outputDirectory: config.outputDirectory?.trim() ? resolve(config.outputDirectory) : null,
     }
   }
 
@@ -401,6 +460,17 @@ export class ComfyImagesController extends TypertRemoteService {
     const timeout = AbortSignal.timeout(this.config.requestTimeoutMs)
     const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     return fetch(`${this.config.baseUrl}${path}`, { ...init, signal: combined })
+  }
+
+  private annotatedSourceImage(image: ComfyImageReference): string {
+    if (!['input', 'output', 'temp'].includes(image.type) || image.filename !== basename(image.filename)) {
+      throw new Error('Invalid ComfyUI source image')
+    }
+    const segments = image.subfolder.split(/[\\/]/u).filter(Boolean)
+    if (segments.some(segment => segment === '..' || segment === '.' || segment.includes(':'))) {
+      throw new Error('Invalid ComfyUI source image folder')
+    }
+    return `${[...segments, image.filename].join('/')} [${image.type}]`
   }
 
   private async nodeChoices(node: string, input: string, signal?: AbortSignal): Promise<string[]> {
@@ -448,17 +518,17 @@ export class ComfyImagesController extends TypertRemoteService {
     return models
   }
 
-  private graphModelAvailable(graph: Workflow, models: readonly CatalogModel[]): boolean {
+  private graphModel(graph: Workflow, models: readonly CatalogModel[]): CatalogModel | undefined {
     const checkpoint = nodeOf(graph, 'CheckpointLoaderSimple')
     if (checkpoint !== undefined) {
       const name = stringInput(graph, checkpoint[0], 'ckpt_name')
-      return models.some(model => model.kind === 'checkpoint' && model.checkpoint === name)
+      return models.find(model => model.kind === 'checkpoint' && model.checkpoint === name)
     }
     const unet = nodeOf(graph, 'UNETLoader')
     const clip = nodeOf(graph, 'CLIPLoader')
     const vae = nodeOf(graph, 'VAELoader')
-    if (unet === undefined || clip === undefined || vae === undefined) return false
-    return models.some(model => model.kind === 'z-image-turbo'
+    if (unet === undefined || clip === undefined || vae === undefined) return undefined
+    return models.find(model => model.kind === 'z-image-turbo'
       && model.diffusionModel === stringInput(graph, unet[0], 'unet_name')
       && model.textEncoder === stringInput(graph, clip[0], 'clip_name')
       && model.vae === stringInput(graph, vae[0], 'vae_name'))
@@ -505,6 +575,7 @@ export class ComfyImagesController extends TypertRemoteService {
         prompt: 'history identity', negativePrompt: '', model: null, workflow: id,
         width: 1024, height: 1024, steps: typeof values[2] === 'number' ? values[2] : 24,
         cfg: typeof values[3] === 'number' ? values[3] : 7, seed: 0, batchSize: 1,
+        sourceImage: null, denoise: 1,
       }
       try {
         const graph = savedTextToImageWorkflow(workflow, example, 0, this.config.outputPrefix)
@@ -529,6 +600,8 @@ export class ComfyImagesController extends TypertRemoteService {
       recommendedSteps: primary?.recommendedSteps ?? 24,
       recommendedCfg: primary?.recommendedCfg ?? 7,
       supportsNegativePrompt: primary?.kind !== 'z-image-turbo',
+      modelId: primary?.id ?? null,
+      starterPrompt: '', width: 1024, height: 1024, batchSize: 1,
     }
     try {
       const catalog = await this.savedCatalog()
@@ -544,21 +617,34 @@ export class ComfyImagesController extends TypertRemoteService {
             prompt: 'compatibility probe', negativePrompt: '', model: null, workflow: id,
             width: 1024, height: 1024, steps: typeof values[2] === 'number' ? values[2] : 24,
             cfg: typeof values[3] === 'number' ? values[3] : 7, seed: 0, batchSize: 1,
+            sourceImage: null, denoise: 1,
           }
           const graph = savedTextToImageWorkflow(workflow, example, 0, this.config.outputPrefix)
-          const available = this.graphModelAvailable(graph, models)
+          const matchedModel = this.graphModel(graph, models)
+          const available = matchedModel !== undefined
+          const starter = workflow.nodes.find(node => node.type === 'CLIPTextEncode' && node.mode === 0)
+          const latent = workflow.nodes.find(node => (
+            node.type === 'EmptyLatentImage' || node.type === 'EmptySD3LatentImage') && node.mode === 0)
+          const latentValues = latent?.widgetsValues ?? []
           return {
             id, label, source: 'saved', available,
             unavailableReason: available ? null : 'Required model files are not installed',
             recommendedSteps: example.steps,
             recommendedCfg: example.cfg,
             supportsNegativePrompt: workflow.nodes.filter(node => node.type === 'CLIPTextEncode' && node.mode === 0).length > 1,
+            modelId: matchedModel?.id ?? null,
+            starterPrompt: typeof starter?.widgetsValues[0] === 'string' ? starter.widgetsValues[0] : '',
+            width: typeof latentValues[0] === 'number' ? latentValues[0] : 1024,
+            height: typeof latentValues[1] === 'number' ? latentValues[1] : 1024,
+            batchSize: typeof latentValues[2] === 'number' ? latentValues[2] : 1,
             saved: workflow,
           }
         } catch (error) {
           return {
             id, label, source: 'saved', available: false, unavailableReason: messageOf(error),
             recommendedSteps: 24, recommendedCfg: 7, supportsNegativePrompt: true,
+            modelId: null,
+            starterPrompt: '', width: 1024, height: 1024, batchSize: 1,
           }
         }
       })
@@ -568,7 +654,10 @@ export class ComfyImagesController extends TypertRemoteService {
     }
   }
 
-  /** Probe ComfyUI and list locally installed model configurations Arya can run. */
+  /** Probe ComfyUI and list locally installed model configurations Arya can run.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns Connection state, models, and saved workflows.
+   */
   @Remote
   async status(signal: AbortSignal): Promise<ComfyImagesStatus> {
     try {
@@ -579,15 +668,23 @@ export class ComfyImagesController extends TypertRemoteService {
         id, label, kind, recommendedSteps, recommendedCfg,
       }))
       const workflows = (await this.workflows(catalogModels, signal)).map(({
-        id, label, source, available, unavailableReason, recommendedSteps, recommendedCfg, supportsNegativePrompt,
-      }) => ({ id, label, source, available, unavailableReason, recommendedSteps, recommendedCfg, supportsNegativePrompt }))
-      return { reachable: true, baseUrl: this.config.baseUrl, models, workflows, error: null }
+        id, label, source, available, unavailableReason, recommendedSteps, recommendedCfg, supportsNegativePrompt, modelId,
+        starterPrompt, width, height, batchSize,
+      }) => ({ id, label, source, available, unavailableReason, recommendedSteps, recommendedCfg, supportsNegativePrompt, modelId,
+        starterPrompt, width, height, batchSize }))
+      return { reachable: true, baseUrl: this.config.baseUrl, models, workflows,
+        libraryAvailable: this.config.outputDirectory !== null, error: null }
     } catch (error) {
-      return { reachable: false, baseUrl: this.config.baseUrl, models: [], workflows: [], error: messageOf(error) }
+      return { reachable: false, baseUrl: this.config.baseUrl, models: [], workflows: [],
+        libraryAvailable: this.config.outputDirectory !== null, error: messageOf(error) }
     }
   }
 
-  /** Queue one standard-node text-to-image workflow. */
+  /** Queue one supported ComfyUI workflow.
+   * @param request - Generation settings and optional source image.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns Queued prompt identifier and resolved seed.
+   */
   @Remote
   async generate(request: ComfyGenerateRequest, signal: AbortSignal): Promise<ComfyGenerateReceipt> {
     const prompt = request.prompt.trim()
@@ -599,6 +696,9 @@ export class ComfyImagesController extends TypertRemoteService {
     integer('steps', request.steps, 1, 150)
     integer('batchSize', request.batchSize, 1, 8)
     if (!Number.isFinite(request.cfg) || request.cfg < 0 || request.cfg > 30) throw new Error('cfg must be from 0 to 30')
+    if (!Number.isFinite(request.denoise) || request.denoise < 0.05 || request.denoise > 1) {
+      throw new Error('Image change strength must be from 0.05 to 1')
+    }
     const available = await this.models(signal)
     const workflows = await this.workflows(available, signal)
     const workflowChoice = request.workflow === null
@@ -620,6 +720,9 @@ export class ComfyImagesController extends TypertRemoteService {
           diffusionModel: model.diffusionModel, textEncoder: model.textEncoder, vae: model.vae,
         }, seed, this.config.outputPrefix)
     }
+    if (request.sourceImage !== null) {
+      imageToImageWorkflow(workflow, this.annotatedSourceImage(request.sourceImage), request.denoise)
+    }
     const response = await this.request('/prompt', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -635,7 +738,11 @@ export class ComfyImagesController extends TypertRemoteService {
     return { promptId: body.prompt_id, seed }
   }
 
-  /** Read completed and failed generations from ComfyUI history. */
+  /** Read completed and failed generations from ComfyUI history.
+   * @param request - Maximum number of history entries.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns Recent completed and failed generations.
+   */
   @Remote
   async history(request: ComfyHistoryRequest, signal: AbortSignal): Promise<readonly ComfyGeneration[]> {
     const limit = integer('limit', request.limit, 1, 100)
@@ -647,7 +754,11 @@ export class ComfyImagesController extends TypertRemoteService {
     return generationsOf(value, identities).slice(0, limit)
   }
 
-  /** Read one output image through the Host so browser CORS never reaches ComfyUI. */
+  /** Read one output image through the Host so browser CORS never reaches ComfyUI.
+   * @param request - ComfyUI image reference.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns Image MIME type and base64 bytes.
+   */
   @Remote
   async image(request: ComfyImageRequest, signal: AbortSignal): Promise<ComfyImageData> {
     if (!['input', 'output', 'temp'].includes(request.type)) throw new Error('Unsupported ComfyUI image type')
@@ -659,7 +770,70 @@ export class ComfyImagesController extends TypertRemoteService {
     return { contentType: response.headers.get('content-type') ?? 'image/png', base64: bytes.toString('base64') }
   }
 
-  /** Remove one completed generation from ComfyUI history. */
+  private outputPath(image: ComfyImageReference): string {
+    const root = this.config.outputDirectory
+    if (root === null) throw new Error('Configure outputDirectory to browse local ComfyUI images')
+    if (image.type !== 'output' || image.filename !== basename(image.filename)) throw new Error('Invalid output image')
+    const path = resolve(root, image.subfolder, image.filename)
+    const within = relative(root, path)
+    if (within.startsWith('..') || isAbsolute(within) || within === '') throw new Error('Image is outside the output directory')
+    return path
+  }
+
+  /** Browse files retained on disk even when ComfyUI has pruned their history.
+   * @param request - Page offset and size.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns Newest output files and total file count.
+   */
+  @Remote
+  async library(request: ComfyLibraryRequest, signal: AbortSignal): Promise<ComfyLibraryPage> {
+    const root = this.config.outputDirectory
+    if (root === null) throw new Error('Configure outputDirectory to browse local ComfyUI images')
+    const offset = integer('offset', request.offset, 0, Number.MAX_SAFE_INTEGER)
+    const limit = integer('limit', request.limit, 1, 100)
+    const images: ComfyStoredImage[] = []
+    const directories = ['']
+    while (directories.length > 0) {
+      signal.throwIfAborted()
+      const subfolder = directories.pop()!
+      for (const entry of await readdir(join(root, subfolder), { withFileTypes: true })) {
+        if (entry.isSymbolicLink()) continue
+        const child = join(subfolder, entry.name)
+        if (entry.isDirectory()) {
+          directories.push(child)
+        } else if (entry.isFile() && /\.(png|jpe?g|webp)$/iu.test(entry.name)) {
+          const info = await stat(join(root, child))
+          images.push({ image: { filename: entry.name, subfolder, type: 'output' },
+            modifiedAt: info.mtimeMs, bytes: info.size })
+        }
+      }
+    }
+    images.sort((left, right) => right.modifiedAt - left.modifiedAt)
+    return { images: images.slice(offset, offset + limit), total: images.length }
+  }
+
+  /** Delete one local output file without deleting other images from its generation.
+   * @param request - Output image under the configured directory.
+   * @param signal - Cancellation signal for the Remote call.
+   */
+  @Remote
+  async deleteImage(request: ComfyImageRequest, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted()
+    const path = this.outputPath(request)
+    const root = this.config.outputDirectory
+    if (root === null) throw new Error('Configure outputDirectory to browse local ComfyUI images')
+    const actual = await realpath(path)
+    const within = relative(await realpath(root), actual)
+    if (within.startsWith('..') || isAbsolute(within) || within === '') throw new Error('Image is outside the output directory')
+    const info = await lstat(path)
+    if (!info.isFile()) throw new Error('Image is not a file')
+    await unlink(path)
+  }
+
+  /** Remove one completed generation from ComfyUI history.
+   * @param request - Prompt identifier to remove.
+   * @param signal - Cancellation signal for the Remote call.
+   */
   @Remote
   async deleteGeneration(request: ComfyDeleteRequest, signal: AbortSignal): Promise<void> {
     const promptId = request.promptId.trim()
@@ -670,7 +844,10 @@ export class ComfyImagesController extends TypertRemoteService {
     if (!response.ok) throw new Error(`ComfyUI history returned HTTP ${response.status}`)
   }
 
-  /** Remove a queued prompt and interrupt the current execution when it is running. */
+  /** Remove a queued prompt and interrupt the current execution when it is running.
+   * @param request - Prompt identifier to cancel.
+   * @param signal - Cancellation signal for the Remote call.
+   */
   @Remote
   async cancel(request: ComfyCancelRequest, signal: AbortSignal): Promise<void> {
     const queue = await this.request('/queue', {}, signal)
