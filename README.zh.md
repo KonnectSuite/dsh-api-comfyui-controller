@@ -9,11 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-这个 Cordis 服务拥有 Images 客户端插件使用的 `comfyImages` Remote 命名空间。Host 探测配置的 ComfyUI 服务，发现本地检查点与 Z-Image Turbo 模型配置，提交相应的标准节点文生图工作流，读取和删除历史记录，读取输出字节，并取消排队或运行中的任务。浏览器代码不会直接连接 ComfyUI，因此 WebUI 和 Electron 使用同一功能且不需要 CORS 配置。
-
-控制器还会读取 ComfyUI 保存的 `workflows` 目录。受支持的标准节点图会根据已安装模型文件进行验证并编译为 API 提示图，同时保留采样器、调度器、模型修补和条件控制选择。
-
-已保存工作流的元数据包含起始提示词和画布设置。图生图生成会直接加载现有 ComfyUI 输出，以 VAE 编码的图像替代空潜变量，同时保留所选工作流的采样器。配置 `outputDirectory` 后，Host 会独立于 ComfyUI 历史记录列出输出文件，并允许在 Images 页面确认后删除单个文件。Web 应用组合通过 `ARYAAI_COMFYUI_OUTPUT_DIR` 读取此设置。
+在 AryaAI WebUI 或桌面版中，通过本地 ComfyUI 服务器生成和编辑图像。Host 发现已安装的模型和保存的工作流，保留受支持工作流的采样器设置，并向 Images 页面提供起始提示词和画布设置。它读取输出图像及最近历史记录、取消任务；配置 `outputDirectory` 后还可列出或删除保留的文件。Web 应用包通过 `ARYAAI_COMFYUI_OUTPUT_DIR` 读取该目录。浏览器代码经由 Host 访问 ComfyUI，无需配置浏览器 CORS。
 
 ## 模型体验
 

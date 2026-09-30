@@ -9,20 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This Cordis service owns the `comfyImages` Remote namespace used by the Images
-client plugin. The Host probes the configured ComfyUI server, discovers local
-checkpoint and Z-Image Turbo model configurations, submits the matching
-standard-node text-to-image workflow, reads and removes history entries, reads
-output bytes, and cancels queued or running work. Browser code never contacts
-ComfyUI directly, so the same feature works in WebUI and Electron without CORS
-configuration.
-
-The controller also reads ComfyUI's saved `workflows` catalog. Supported
-standard-node graphs are validated against the installed model files and
-compiled into API prompt graphs while preserving their sampler, scheduler,
-model-patching, and conditioning choices.
-
-Saved workflow metadata includes its starter prompt and canvas settings. Image-to-image generation loads an existing ComfyUI output directly and replaces the empty latent with a VAE-encoded image while retaining the selected workflow's sampler. When `outputDirectory` is configured, the Host lists output files independently of ComfyUI history and can delete one selected file after confirmation in the Images page. The web-app bundle reads `ARYAAI_COMFYUI_OUTPUT_DIR` for this setting.
+Generate and edit images from AryaAI through a local ComfyUI server in WebUI or Desktop. The Host discovers installed models and saved workflows, retains each supported workflow's sampler choices, and exposes starter prompts and canvas settings to the Images page. It reads output images and recent history, cancels jobs, and lists or deletes retained files when `outputDirectory` is configured. The web-app bundle reads `ARYAAI_COMFYUI_OUTPUT_DIR` for that directory. Browser code reaches ComfyUI through the Host, avoiding browser CORS configuration.
 
 ## Model Experience
 

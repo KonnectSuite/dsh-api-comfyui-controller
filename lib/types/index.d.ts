@@ -4,9 +4,13 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from './types.ts';
 export type * from './types.ts';
 interface Config {
+    /** Local ComfyUI HTTP endpoint. */
     readonly baseUrl?: string;
+    /** Prefix for generated output filenames. */
     readonly outputPrefix?: string;
+    /** Deadline for ComfyUI HTTP requests. */
     readonly requestTimeoutMs?: number;
+    /** Local ComfyUI output folder used for library browsing and file deletion. */
     readonly outputDirectory?: string;
 }
 interface ResolvedConfig {
