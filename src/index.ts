@@ -1,13 +1,20 @@
 /** The `comfyImages` Remote namespace over one configured local ComfyUI host. */
 import { randomInt, randomUUID } from 'node:crypto'
-import { lstat, readdir, realpath, stat, unlink } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { readdir, stat, unlink } from 'node:fs/promises'
+import { basename, extname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import {
+  COMFY_ARCHIVE_PATH, COMFY_BATCH_LIMIT, COMFY_MEDIA_EXTENSIONS, COMFY_MEDIA_PATH,
+  comfyArchiveResponse, comfyMediaResponse, localMedia,
+} from './media.ts'
 import type {
   ComfyCancelRequest,
   ComfyDeleteRequest,
+  ComfyDeleteImagesRequest,
+  ComfyDeleteImagesResult,
   ComfyGenerateReceipt,
   ComfyGenerateRequest,
   ComfyGeneration,
@@ -458,6 +465,20 @@ export class ComfyImagesController extends TypertRemoteService {
       requestTimeoutMs: config.requestTimeoutMs ?? 30_000,
       outputDirectory: config.outputDirectory?.trim() ? resolve(config.outputDirectory) : null,
     }
+    ctx.inject(['connection'], connected => {
+      connected.effect(() => connected.connection.fetch.register({
+        path: COMFY_MEDIA_PATH, methods: ['GET', 'HEAD'], requestBody: 'buffered',
+        fetch: request => this.config.outputDirectory === null
+          ? Promise.resolve(new Response('Local media is unavailable', { status: 404 }))
+          : comfyMediaResponse(this.config.outputDirectory, request),
+      }), 'comfyui-controller: media route')
+      connected.effect(() => connected.connection.fetch.register({
+        path: COMFY_ARCHIVE_PATH, methods: ['GET', 'HEAD'], requestBody: 'buffered',
+        fetch: request => this.config.outputDirectory === null
+          ? Promise.resolve(new Response('Local media is unavailable', { status: 404 }))
+          : comfyArchiveResponse(this.config.outputDirectory, request),
+      }), 'comfyui-controller: archive route')
+    })
   }
 
   private async request(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
@@ -774,16 +795,6 @@ export class ComfyImagesController extends TypertRemoteService {
     return { contentType: response.headers.get('content-type') ?? 'image/png', base64: bytes.toString('base64') }
   }
 
-  private outputPath(image: ComfyImageReference): string {
-    const root = this.config.outputDirectory
-    if (root === null) throw new Error('Configure outputDirectory to browse local ComfyUI images')
-    if (image.type !== 'output' || image.filename !== basename(image.filename)) throw new Error('Invalid output image')
-    const path = resolve(root, image.subfolder, image.filename)
-    const within = relative(root, path)
-    if (within.startsWith('..') || isAbsolute(within) || within === '') throw new Error('Image is outside the output directory')
-    return path
-  }
-
   /** Browse files retained on disk even when ComfyUI has pruned their history.
    * @param request - Page offset and size.
    * @param signal - Cancellation signal for the Remote call.
@@ -805,7 +816,7 @@ export class ComfyImagesController extends TypertRemoteService {
         const child = join(subfolder, entry.name)
         if (entry.isDirectory()) {
           directories.push(child)
-        } else if (entry.isFile() && /\.(png|jpe?g|webp)$/iu.test(entry.name)) {
+        } else if (entry.isFile() && COMFY_MEDIA_EXTENSIONS.includes(extname(entry.name).toLowerCase())) {
           const info = await stat(join(root, child))
           images.push({ image: { filename: entry.name, subfolder, type: 'output' },
             modifiedAt: info.mtimeMs, bytes: info.size })
@@ -823,15 +834,38 @@ export class ComfyImagesController extends TypertRemoteService {
   @Remote
   async deleteImage(request: ComfyImageRequest, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted()
-    const path = this.outputPath(request)
     const root = this.config.outputDirectory
     if (root === null) throw new Error('Configure outputDirectory to browse local ComfyUI images')
-    const actual = await realpath(path)
-    const within = relative(await realpath(root), actual)
-    if (within.startsWith('..') || isAbsolute(within) || within === '') throw new Error('Image is outside the output directory')
-    const info = await lstat(path)
-    if (!info.isFile()) throw new Error('Image is not a file')
-    await unlink(path)
+    const file = await localMedia(root, request)
+    signal.throwIfAborted()
+    await unlink(file.path)
+  }
+
+  /** Delete selected local images and videos, reporting each failure independently.
+   * @param request - One to 100 local output references.
+   * @param signal - Cancellation signal for the Remote call.
+   * @returns References deleted and references that failed.
+   */
+  @Remote
+  async deleteImages(request: ComfyDeleteImagesRequest, signal: AbortSignal): Promise<ComfyDeleteImagesResult> {
+    if (request.images.length < 1 || request.images.length > COMFY_BATCH_LIMIT) throw new Error('Invalid media selection')
+    const root = this.config.outputDirectory
+    if (root === null) throw new Error('Configure outputDirectory to delete local ComfyUI files')
+    const unique = new Map<string, ComfyImageReference>()
+    for (const image of request.images) unique.set(`${image.subfolder}\0${image.filename}`, image)
+    const deleted: ComfyImageReference[] = []
+    const failed: { image: ComfyImageReference; message: string }[] = []
+    for (const image of unique.values()) {
+      signal.throwIfAborted()
+      try {
+        const file = await localMedia(root, image)
+        await unlink(file.path)
+        deleted.push(image)
+      } catch (error) {
+        failed.push({ image, message: messageOf(error) })
+      }
+    }
+    return { deleted, failed }
   }
 
   /** Remove one completed generation from ComfyUI history.

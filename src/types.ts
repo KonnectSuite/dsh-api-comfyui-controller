@@ -61,7 +61,7 @@ export interface ComfyGenerateReceipt {
   readonly seed: number
 }
 
-/** One image stored by ComfyUI. */
+/** One image or video stored by ComfyUI. */
 export interface ComfyImageReference {
   readonly filename: string
   readonly subfolder: string
@@ -110,13 +110,13 @@ export interface ComfyDeleteRequest {
   readonly promptId: string
 }
 
-/** A page of images retained in ComfyUI's output directory, including old runs absent from history. */
+/** A page of media retained in ComfyUI's output directory, including old runs absent from history. */
 export interface ComfyLibraryPage {
   readonly images: readonly ComfyStoredImage[]
   readonly total: number
 }
 
-/** One image on disk under the configured ComfyUI output directory. */
+/** One image or video on disk under the configured ComfyUI output directory. */
 export interface ComfyStoredImage {
   readonly image: ComfyImageReference
   readonly modifiedAt: number
@@ -128,3 +128,20 @@ export interface ComfyLibraryRequest {
   readonly offset: number
   readonly limit: number
 }
+
+/** Images and videos to delete in one Host operation. */
+export interface ComfyDeleteImagesRequest {
+  readonly images: readonly ComfyImageReference[]
+}
+
+/** Batch deletion reports successes and failures independently. */
+export interface ComfyDeleteImagesResult {
+  readonly deleted: readonly ComfyImageReference[]
+  readonly failed: readonly { readonly image: ComfyImageReference; readonly message: string }[]
+}
+
+/** Authenticated browser-relative route for streaming one local image or video. */
+export const COMFY_MEDIA_ROUTE = 'api/comfyui-media'
+
+/** Authenticated browser-relative route for a ZIP of selected local files. */
+export const COMFY_ARCHIVE_ROUTE = 'api/comfyui-archive'

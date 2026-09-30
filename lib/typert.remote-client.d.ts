@@ -3,13 +3,14 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from '@deepseek-ai/dsh-api-comfyui-controller/types'
+import type { ComfyCancelRequest, ComfyDeleteImagesRequest, ComfyDeleteImagesResult, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from '@deepseek-ai/dsh-api-comfyui-controller/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$636f6d6679496d61676573 {
     cancel: (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     deleteGeneration: (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     deleteImage: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
+    deleteImages: (request: ComfyDeleteImagesRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyDeleteImagesResult>>
     generate: (request: ComfyGenerateRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyGenerateReceipt>>
     history: (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     image: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>
@@ -20,6 +21,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'comfyImages/cancel': (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/deleteGeneration': (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/deleteImage': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
+    'comfyImages/deleteImages': (request: ComfyDeleteImagesRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyDeleteImagesResult>>
     'comfyImages/generate': (request: ComfyGenerateRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyGenerateReceipt>>
     'comfyImages/history': (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     'comfyImages/image': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>

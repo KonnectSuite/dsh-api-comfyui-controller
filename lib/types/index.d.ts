@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
-import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from './types.ts';
+import type { ComfyCancelRequest, ComfyDeleteRequest, ComfyDeleteImagesRequest, ComfyDeleteImagesResult, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from './types.ts';
 export type * from './types.ts';
 interface Config {
     /** Local ComfyUI HTTP endpoint. */
@@ -130,7 +130,6 @@ export declare class ComfyImagesController extends TypertRemoteService {
      * @returns Image MIME type and base64 bytes.
      */
     image(request: ComfyImageRequest, signal: AbortSignal): Promise<ComfyImageData>;
-    private outputPath;
     /** Browse files retained on disk even when ComfyUI has pruned their history.
      * @param request - Page offset and size.
      * @param signal - Cancellation signal for the Remote call.
@@ -142,6 +141,12 @@ export declare class ComfyImagesController extends TypertRemoteService {
      * @param signal - Cancellation signal for the Remote call.
      */
     deleteImage(request: ComfyImageRequest, signal: AbortSignal): Promise<void>;
+    /** Delete selected local images and videos, reporting each failure independently.
+     * @param request - One to 100 local output references.
+     * @param signal - Cancellation signal for the Remote call.
+     * @returns References deleted and references that failed.
+     */
+    deleteImages(request: ComfyDeleteImagesRequest, signal: AbortSignal): Promise<ComfyDeleteImagesResult>;
     /** Remove one completed generation from ComfyUI history.
      * @param request - Prompt identifier to remove.
      * @param signal - Cancellation signal for the Remote call.

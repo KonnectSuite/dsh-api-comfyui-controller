@@ -77,14 +77,22 @@ describe('ComfyImagesController', () => {
       await mkdir(join(root, 'archive'))
       await writeFile(join(root, 'older.png'), 'older')
       await writeFile(join(root, 'archive', 'chosen.webp'), 'chosen')
+      await writeFile(join(root, 'clip.mp4'), 'video')
       const controller = new ComfyImagesController(new Context(), { outputDirectory: root })
       const first = await controller.library({ offset: 0, limit: 1 }, signal())
       const second = await controller.library({ offset: 1, limit: 1 }, signal())
-      expect(first.total).toBe(2)
-      expect([...first.images, ...second.images].map(item => item.image.filename).sort()).toEqual(['chosen.webp', 'older.png'])
+      expect(first.total).toBe(3)
+      expect([...first.images, ...second.images].map(item => item.image.filename)).toHaveLength(2)
+      expect((await controller.library({ offset: 0, limit: 10 }, signal())).images.map(item => item.image.filename).sort()).toEqual(['chosen.webp', 'clip.mp4', 'older.png'])
       await expect(controller.deleteImage({ filename: 'older.png', subfolder: '..', type: 'output' }, signal())).rejects.toThrow()
       await controller.deleteImage({ filename: 'chosen.webp', subfolder: 'archive', type: 'output' }, signal())
       await expect(readFile(join(root, 'archive', 'chosen.webp'))).rejects.toThrow()
+      const deleted = await controller.deleteImages({ images: [
+        { filename: 'clip.mp4', subfolder: '', type: 'output' },
+        { filename: 'missing.png', subfolder: '', type: 'output' },
+      ] }, signal())
+      expect(deleted.deleted.map(item => item.filename)).toEqual(['clip.mp4'])
+      expect(deleted.failed.map(item => item.image.filename)).toEqual(['missing.png'])
       expect((await controller.library({ offset: 0, limit: 10 }, signal())).total).toBe(1)
     } finally {
       await rm(root, { recursive: true, force: true })
