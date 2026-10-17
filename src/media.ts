@@ -56,27 +56,38 @@ function imageFromQuery(url: URL): ComfyImageReference {
   }
 }
 
-function rangeOf(value: string | null, size: number): { start: number; end: number } | null {
+function rangeOf(value: string | null, size: number): { start: number; end: number } | 'unsatisfiable' | null {
   if (value === null) return null
-  const match = /^bytes=(\d+)-(\d*)$/u.exec(value)
+  if (!value.startsWith('bytes=') || value.includes(',')) return null
+  const match = /^bytes=(\d*)-(\d*)$/u.exec(value)
   if (match === null) throw new Error('Invalid media range')
-  const start = Number(match[1])
-  const end = match[2] === '' ? size - 1 : Number(match[2])
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || end >= size) {
-    throw new Error('Invalid media range')
+  const [, first = '', last = ''] = match
+  if (first === '' && last === '') throw new Error('Invalid media range')
+  const length = BigInt(size)
+  if (first === '') {
+    const suffix = BigInt(last)
+    if (suffix === 0n || size === 0) return 'unsatisfiable'
+    return { start: suffix >= length ? 0 : Number(length - suffix), end: size - 1 }
   }
-  return { start, end }
+  const start = BigInt(first)
+  const end = last === '' ? length - 1n : BigInt(last)
+  if (last !== '' && start > end) throw new Error('Invalid media range')
+  if (start >= length) return 'unsatisfiable'
+  return { start: Number(start), end: end >= length ? size - 1 : Number(end) }
 }
 
 /** Stream one selected image or video with byte ranges for video seeking.
  * @param root - Configured ComfyUI output folder.
  * @param request - Authenticated HTTP request.
- * @returns A bounded-range media response or a client error.
+ * @returns Full or single-range media, 416 for an unsatisfiable range, or a client error.
  */
 export async function comfyMediaResponse(root: string, request: Request): Promise<Response> {
   try {
     const file = await localMedia(root, imageFromQuery(new URL(request.url)))
-    const range = rangeOf(request.headers.get('range'), file.size)
+    const range = rangeOf(request.method === 'GET' ? request.headers.get('range') : null, file.size)
+    if (range === 'unsatisfiable') return new Response(null, {
+      status: 416, headers: { 'content-range': `bytes */${file.size}`, 'accept-ranges': 'bytes' },
+    })
     const start = range?.start ?? 0
     const end = range?.end ?? file.size - 1
     const headers = new Headers({
@@ -87,7 +98,7 @@ export async function comfyMediaResponse(root: string, request: Request): Promis
       'x-content-type-options': 'nosniff',
     })
     if (range !== null) headers.set('content-range', `bytes ${start}-${end}/${file.size}`)
-    if (request.method === 'HEAD') return new Response(null, { status: range === null ? 200 : 206, headers })
+    if (request.method === 'HEAD' || file.size === 0) return new Response(null, { status: 200, headers })
     const stream = createReadStream(file.path, { start, end, signal: request.signal })
     return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
       status: range === null ? 200 : 206, headers,
@@ -116,7 +127,12 @@ function archiveImages(url: URL): ComfyImageReference[] {
   return images
 }
 
-function streamArchive(files: readonly LocalMedia[], signal: AbortSignal): ReadableStream<Uint8Array> {
+interface ArchiveSource {
+  readonly name: string
+  readonly read: (signal: AbortSignal) => AsyncIterable<Uint8Array>
+}
+
+function streamArchive(files: readonly ArchiveSource[], signal: AbortSignal): ReadableStream<Uint8Array> {
   const consumerAbort = new AbortController()
   const combined = AbortSignal.any([signal, consumerAbort.signal])
   let zip: Zip | undefined
@@ -137,11 +153,11 @@ function streamArchive(files: readonly LocalMedia[], signal: AbortSignal): Reada
             combined.throwIfAborted()
             const entry = new ZipPassThrough(file.name)
             archive.add(entry)
-            for await (const chunk of createReadStream(file.path, { highWaterMark: 64 * 1024, signal: combined })) {
+            for await (const chunk of file.read(combined)) {
               combined.throwIfAborted()
               entry.push(chunk, false)
               if (controller.desiredSize !== null && controller.desiredSize <= 0) {
-                await new Promise<void>(resolveWait => {
+                await new Promise<void>((resolveWait) => {
                   const release = (): void => {
                     resume = undefined
                     combined.removeEventListener('abort', release)
@@ -188,6 +204,60 @@ export async function comfyArchiveResponse(root: string, request: Request): Prom
       'x-content-type-options': 'nosniff',
     }
     if (request.method === 'HEAD') return new Response(null, { headers })
+    return new Response(streamArchive(files.map(file => ({
+      name: file.name,
+      read: signal => createReadStream(file.path, { highWaterMark: 64 * 1024, signal }),
+    })), request.signal), { headers })
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : 'Unable to export media', { status: 400 })
+  }
+}
+
+/** Download selected ComfyUI outputs without requiring a mounted output directory.
+ * @param request - Authenticated GET or HEAD request with selected references.
+ * @param fetchMedia - Fetch one output from the configured server with cancellation.
+ * @returns a streamed ZIP after validating names and checking every remote output.
+ */
+export async function comfyRemoteArchiveResponse(request: Request,
+  fetchMedia: (image: ComfyImageReference, method: 'GET' | 'HEAD', signal: AbortSignal) => Promise<Response>,
+): Promise<Response> {
+  try {
+    const images = archiveImages(new URL(request.url))
+    const outputs = images.map((image) => {
+      const name = [image.subfolder, image.filename].filter(Boolean).join('/').replaceAll('\\', '/')
+      if (image.filename !== basename(image.filename) || isAbsolute(name)
+        || name.split('/').some(part => part === '..' || part === '.' || part === '')
+        || MEDIA_TYPES[extname(image.filename).toLowerCase()] === undefined) throw new Error('Invalid output file')
+      return { image, name }
+    })
+    if (new Set(outputs.map(output => output.name)).size !== outputs.length) throw new Error('Duplicate output file')
+    for (const image of images) {
+      const response = await fetchMedia(image, 'HEAD', request.signal)
+      if (!response.ok) throw new Error(`ComfyUI output returned HTTP ${response.status}`)
+    }
+    const headers = {
+      'content-type': 'application/zip',
+      'content-disposition': 'attachment; filename="aryaai-media.zip"',
+      'cache-control': 'private, no-store',
+      'x-content-type-options': 'nosniff',
+    }
+    if (request.method === 'HEAD') return new Response(null, { headers })
+    const files: ArchiveSource[] = outputs.map(({ image, name }) => ({
+      name,
+      read: async function* (signal) {
+        const response = await fetchMedia(image, 'GET', signal)
+        if (!response.ok || response.body === null) throw new Error(`ComfyUI output returned HTTP ${response.status}`)
+        const reader = response.body.getReader()
+        try {
+          for (;;) {
+            signal.throwIfAborted()
+            const chunk = await reader.read()
+            if (chunk.done) break
+            yield chunk.value
+          }
+        } finally { await reader.cancel(); reader.releaseLock() }
+      },
+    }))
     return new Response(streamArchive(files, request.signal), { headers })
   } catch (error) {
     return new Response(error instanceof Error ? error.message : 'Unable to export media', { status: 400 })

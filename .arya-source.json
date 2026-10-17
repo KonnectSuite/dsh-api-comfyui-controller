@@ -1,0 +1,6 @@
+{
+  "repository": "KonnectSuite/AryaAI",
+  "commit": "865e410d01aea0074412072cda67f59a07a19e59",
+  "path": "packages/api/comfyui-controller",
+  "build": "Build and test in the AryaAI workspace; lib files and resolved package metadata are copied from its packed artifact."
+}

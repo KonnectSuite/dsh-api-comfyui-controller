@@ -18,7 +18,7 @@ export declare function localMedia(root: string, image: ComfyImageReference): Pr
 /** Stream one selected image or video with byte ranges for video seeking.
  * @param root - Configured ComfyUI output folder.
  * @param request - Authenticated HTTP request.
- * @returns A bounded-range media response or a client error.
+ * @returns Full or single-range media, 416 for an unsatisfiable range, or a client error.
  */
 export declare function comfyMediaResponse(root: string, request: Request): Promise<Response>;
 /** Stream one ZIP containing selected images and videos, preserving subfolders.
@@ -27,6 +27,12 @@ export declare function comfyMediaResponse(root: string, request: Request): Prom
  * @returns Download response after every entry has been validated.
  */
 export declare function comfyArchiveResponse(root: string, request: Request): Promise<Response>;
+/** Download selected ComfyUI outputs without requiring a mounted output directory.
+ * @param request - Authenticated GET or HEAD request with selected references.
+ * @param fetchMedia - Fetch one output from the configured server with cancellation.
+ * @returns a streamed ZIP after validating names and checking every remote output.
+ */
+export declare function comfyRemoteArchiveResponse(request: Request, fetchMedia: (image: ComfyImageReference, method: 'GET' | 'HEAD', signal: AbortSignal) => Promise<Response>): Promise<Response>;
 /** Absolute authenticated routes registered by the Host service. */
 export declare const COMFY_MEDIA_PATH = "/api/comfyui-media";
 /** Absolute authenticated route for ZIP downloads. */

@@ -10,6 +10,13 @@ export interface ComfyImagesStatus {
 }
 /** One built-in or saved ComfyUI workflow exposed in the Images composer. */
 export interface ComfyImageWorkflow {
+    /** A create graph may optionally accept an initial reference image. */
+    readonly acceptsReference?: boolean | undefined;
+    /** Reference editing requires a source image; absent means a legacy create workflow. */
+    readonly task?: 'create' | 'edit' | undefined;
+    /** What the graph writes: a still image, or a video assembled from frames. Read from
+     * the graph's output node, so a video workflow is never presented as a still one. */
+    readonly output: 'image' | 'video';
     readonly id: string;
     readonly label: string;
     readonly source: 'built-in' | 'saved';
@@ -18,6 +25,9 @@ export interface ComfyImageWorkflow {
     readonly recommendedSteps: number;
     readonly recommendedCfg: number;
     readonly supportsNegativePrompt: boolean;
+    /** Whether the graph encodes a prompt at all. Absent means it does, so a post-processing
+     * graph — upscaling, frame interpolation — is the only reason to set it false. */
+    readonly takesPrompt?: boolean | undefined;
     /** Installed model wired into this saved graph; null when unavailable. */
     readonly modelId: string | null;
     /** Editable starting values taken from the saved graph. */
@@ -30,12 +40,14 @@ export interface ComfyImageWorkflow {
 export interface ComfyImageModel {
     readonly id: string;
     readonly label: string;
-    readonly kind: 'checkpoint' | 'z-image-turbo';
+    readonly kind: 'checkpoint' | 'z-image-turbo' | 'flux2-klein';
     readonly recommendedSteps: number;
     readonly recommendedCfg: number;
 }
 /** A basic text-to-image request. */
 export interface ComfyGenerateRequest {
+    /** Optional scene timing; rejected when the selected graph cannot apply it. */
+    readonly videoSettings?: ComfyVideoSettings | undefined;
     readonly prompt: string;
     readonly negativePrompt: string;
     readonly model: string | null;
@@ -51,6 +63,35 @@ export interface ComfyGenerateRequest {
     /** Amount of change when sourceImage is set, from 0.05 to 1. */
     readonly denoise: number;
 }
+/** Scene timing and ordered prompt segments for a Director render. */
+export interface ComfyVideoSettings {
+    readonly durationSeconds: number;
+    readonly frameRate: number;
+    /** Segment durations must total durationSeconds. No segments keeps the saved timeline. */
+    readonly segments?: readonly {
+        readonly seconds: number;
+        readonly prompt: string;
+    }[] | undefined;
+}
+/** Ordered output clips assembled into a new MP4; source files remain unchanged. */
+export interface ComfyFilmRequest {
+    readonly clips: readonly {
+        readonly media: ComfyImageReference;
+        readonly startSeconds?: number | undefined;
+        readonly seconds?: number | undefined;
+        readonly caption?: string | undefined;
+    }[];
+    readonly width: number;
+    readonly height: number;
+    readonly frameRate: number;
+    readonly fadeSeconds: number;
+}
+/** A completed assembled film in the ordinary ComfyUI output library. */
+export interface ComfyFilmResult {
+    readonly media: ComfyImageReference;
+    readonly seconds: number;
+    readonly clips: number;
+}
 /** The queued ComfyUI prompt. */
 export interface ComfyGenerateReceipt {
     readonly promptId: string;
@@ -64,6 +105,10 @@ export interface ComfyImageReference {
 }
 /** One generation reconstructed from ComfyUI history. */
 export interface ComfyGeneration {
+    /** Source retained in ComfyUI metadata for continuing an edit. */
+    readonly sourceImage?: ComfyImageReference | null;
+    /** Sampler change strength when the graph uses basic image-to-image sampling. */
+    readonly denoise?: number;
     readonly promptId: string;
     readonly state: 'complete' | 'error';
     readonly workflow: string | null;
@@ -77,6 +122,7 @@ export interface ComfyGeneration {
     readonly steps: number;
     readonly cfg: number;
     readonly seed: number;
+    /** Image and video references returned by recognized ComfyUI history graphs. */
     readonly images: ComfyImageReference[];
 }
 /** Bounds one history read. */
@@ -86,7 +132,7 @@ export interface ComfyHistoryRequest {
 /** Asks for one ComfyUI output image. */
 export interface ComfyImageRequest extends ComfyImageReference {
 }
-/** Image bytes encoded for the JSON Remote boundary. */
+/** Image or video bytes encoded for the JSON Remote boundary. */
 export interface ComfyImageData {
     readonly contentType: string;
     readonly base64: string;
@@ -126,6 +172,13 @@ export interface ComfyDeleteImagesResult {
         readonly image: ComfyImageReference;
         readonly message: string;
     }[];
+}
+/** Outcome of one ComfyUI server lifecycle action, as the Images panel shows it. */
+export interface ComfyServerControlResult {
+    /** Whether ComfyUI answers on its HTTP endpoint after the action. */
+    readonly running: boolean;
+    /** One line the panel shows verbatim: what happened, or why nothing did. */
+    readonly detail: string;
 }
 /** Authenticated browser-relative route for streaming one local image or video. */
 export declare const COMFY_MEDIA_ROUTE = "api/comfyui-media";

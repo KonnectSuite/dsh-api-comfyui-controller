@@ -9,8 +9,14 @@
   en: d6697470112c0cb7
   zh: 126c1299077e1559
 /deepseek-ai-dsh-api-comfyui-controller/summary:
-  en: e4d15030d4598727
-  zh: 3e597705b1d116a1
+  en: 06be137a282c25c3
+  zh: ebbc6cccf88b76be
+/deepseek-ai-dsh-api-comfyui-controller/table-of-contents:
+  en: 11071ccb44677de3
+  zh: 678276596d65bd5e
+/deepseek-ai-dsh-api-comfyui-controller/understand-the-implementation:
+  en: 3bc07fcb3147cf3a
+  zh: c5595c21b4673b28
 /deepseek-ai-dsh-api-comfyui-controller/model-experience:
   en: cafef874098c2618
   zh: 5c90c287d5c7fae6
@@ -18,5 +24,8 @@
   en: c3537ce2e5145994
   zh: 4eb0c079fd9389ee
 /deepseek-ai-dsh-api-comfyui-controller/known-limitations-and-deferred-work:
-  en: d63e7d98e1681611
-  zh: 25cf5442ac4d0b3b
+  en: 7f108766d3c58d07
+  zh: 95b3a2812bba284e
+/deepseek-ai-dsh-api-comfyui-controller/known-limitations-and-deferred-work/dev-note:
+  en: db2d8aa0778051e2
+  zh: cf8195517a161bd4

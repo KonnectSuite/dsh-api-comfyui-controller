@@ -3,10 +3,11 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { ComfyCancelRequest, ComfyDeleteImagesRequest, ComfyDeleteImagesResult, ComfyDeleteRequest, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest } from '@deepseek-ai/dsh-api-comfyui-controller/types'
+import type { ComfyCancelRequest, ComfyDeleteImagesRequest, ComfyDeleteImagesResult, ComfyDeleteRequest, ComfyFilmRequest, ComfyFilmResult, ComfyGenerateReceipt, ComfyGenerateRequest, ComfyGeneration, ComfyHistoryRequest, ComfyImageData, ComfyImageRequest, ComfyImagesStatus, ComfyLibraryPage, ComfyLibraryRequest, ComfyServerControlResult } from '@deepseek-ai/dsh-api-comfyui-controller/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$636f6d6679496d61676573 {
+    assemble: (request: ComfyFilmRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyFilmResult>>
     cancel: (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     deleteGeneration: (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     deleteImage: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
@@ -15,9 +16,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     history: (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     image: (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>
     library: (request: ComfyLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyLibraryPage>>
+    restartServer: (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
+    startServer: (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
     status: (signal?: AbortSignal) => Promise<RemoteResult<ComfyImagesStatus>>
+    stopServer: (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
   }
   interface TypertRemoteMap {
+    'comfyImages/assemble': (request: ComfyFilmRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyFilmResult>>
     'comfyImages/cancel': (request: ComfyCancelRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/deleteGeneration': (request: ComfyDeleteRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
     'comfyImages/deleteImage': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<void>>
@@ -26,7 +31,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'comfyImages/history': (request: ComfyHistoryRequest, signal?: AbortSignal) => Promise<RemoteResult<readonly ComfyGeneration[]>>
     'comfyImages/image': (request: ComfyImageRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyImageData>>
     'comfyImages/library': (request: ComfyLibraryRequest, signal?: AbortSignal) => Promise<RemoteResult<ComfyLibraryPage>>
+    'comfyImages/restartServer': (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
+    'comfyImages/startServer': (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
     'comfyImages/status': (signal?: AbortSignal) => Promise<RemoteResult<ComfyImagesStatus>>
+    'comfyImages/stopServer': (signal?: AbortSignal) => Promise<RemoteResult<ComfyServerControlResult>>
   }
   interface TypertRemoteNamespaceMap {
     'comfyImages': TypertRemoteNamespace$636f6d6679496d61676573
